@@ -24,7 +24,7 @@ setup_args = {
     'download_url': 'https://pypi.org/project/dfbar/',
     'entry_points': {
         'console_scripts': [
-            'dfbar = dfbar.dfbar:main'
+            'dfbar = dfbar:main'
         ]
     },
     'package_dir': {

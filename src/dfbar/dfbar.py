@@ -2,7 +2,7 @@
 
 import os
 import sys
-from argparse import ArgumentParser
+import argparse
 import json
 import re
 import subprocess
@@ -94,9 +94,10 @@ def process_docker_directory(directory, session):
 
 def main():
     # Process the command line arguments
-    parser = ArgumentParser(
+    parser = argparse.ArgumentParser(
         prog='dfbar',
-        description='Dockerfile Build and Run'
+        description='Dockerfile Build and Run',
+        exit_on_error=False
     )
 
     # Mutually exclusive group for profile or directory argument
@@ -168,8 +169,7 @@ def main():
     else:
         # No profile, so a directory is mandatory
         if args.directory is None or args.directory == '':
-            print('Could not determine directory. Profile or directory missing')
-            sys.exit(1)
+            raise Exception('Could not determine directory. Profile or directory missing')
 
         directories = [ args.directory ]
 
@@ -202,11 +202,13 @@ def main():
         for dirname in directories:
             process_docker_directory(dirname, session)
     except Exception as e:
-        print('Directory processing failed with error: %s' % e)
-        print('Aborting')
+        raise Exception('Directory processing failed with error: %s' % e)
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as e:
+        print(e)
         sys.exit(1)
 
     sys.exit(0)
-
-if __name__ == '__main__':
-    main()

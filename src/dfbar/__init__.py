@@ -1,5 +1,5 @@
-from . import dfbar
+from .dfbar import main
 
 __all__ = [
-    'dfbar'
+    'main'
 ]
