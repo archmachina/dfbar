@@ -12,7 +12,8 @@ setup_args = {
     'long_description': README,
     'license': 'MIT',
     'packages': find_packages(
-        include=['dfbar']
+        where='src',
+        include=['dfbar.*']
     ),
     'author': 'Jesse Reichman',
     'keywords': [ 'Dockerfile', 'Build', 'Run' ],
@@ -22,6 +23,9 @@ setup_args = {
         'console_scripts': [
             'dfbar = dfbar.dfbar:main'
         ]
+    },
+    'package_dir': {
+        '': 'src'
     }
 }
 
