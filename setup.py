@@ -13,7 +13,10 @@ setup_args = {
     'license': 'MIT',
     'packages': find_packages(
         where='src',
-        include=['dfbar.*']
+        include=[
+            'dfbar',
+            'dfbar.*'
+        ]
     ),
     'author': 'Jesse Reichman',
     'keywords': [ 'Dockerfile', 'Build', 'Run' ],
