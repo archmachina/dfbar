@@ -54,6 +54,7 @@ while [ "$1" != "" ] ; do
 
   case "$COMMAND" in
     build)
+      export BUILD_VERSION
       assert python3 -m build
       ;;
 
