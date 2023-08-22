@@ -17,7 +17,12 @@ setup_args = {
     'author': 'Jesse Reichman',
     'keywords': [ 'Dockerfile', 'Build', 'Run' ],
     'url': 'https://github.com/archmachina/dfbar',
-    'download_url': 'https://pypi.org/project/dfbar/'
+    'download_url': 'https://pypi.org/project/dfbar/',
+    'entry_points': {
+        'console_scripts': [
+            'dfbar = dfbar.dfbar:main'
+        ]
+    }
 }
 
 install_requires = []
