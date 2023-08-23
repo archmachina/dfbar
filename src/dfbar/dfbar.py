@@ -23,7 +23,7 @@ class Logger:
         print('WARNING: ' + message)
 
 def process_docker_spec(spec, dockerfile=None, verbose=False,
-                             run=True, shell=False, ignore_missing=False):
+                             run=True, shell=False, ignore_missing=False, mode=''):
     logger = Logger(verbose)
 
     # Make sure we have a valid spec
@@ -32,6 +32,10 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
 
     if not os.path.exists(spec):
         raise Exception('Spec does not exist: %s' % spec)
+
+    # Make sure the mode is valid
+    if mode is not None and mode != '' and re.search('^[A-Za-z0-9]+$', mode) is None:
+        raise Exception('Invalid mode specified - Must be only be A-Za-z0-9')
 
     # Work out what to do with the spec and optional dockerfile
     if dockerfile is not None and dockerfile != '':
@@ -85,6 +89,22 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
             image_opts = "%s %s" % (image_opts, match.groups()[0])
             continue
 
+        if mode is not None and mode != '':
+            match = re.search('^\s*#\s*' + mode + '_BUILD_OPTS\s*(.*)', line)
+            if match is not None:
+                build_opts = "%s %s" % (build_opts, match.groups()[0])
+                continue
+
+            match = re.search('^\s*#\s*' + mode + '_RUN_OPTS\s*(.*)', line)
+            if match is not None:
+                run_opts = "%s %s" % (run_opts, match.groups()[0])
+                continue
+
+            match = re.search('^\s*#\s*' + mode + '_IMAGE_OPTS\s*(.*)', line)
+            if match is not None:
+                image_opts = "%s %s" % (image_opts, match.groups()[0])
+                continue
+
     logger.log_verbose('Build Options: %s' % build_opts)
     logger.log_verbose('Run Options: %s' % run_opts)
     logger.log_verbose('Image Options: %s' % image_opts)
@@ -112,7 +132,14 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
     if run:
         logger.log_verbose('Running container image')
 
-        run_cmd = 'docker run --rm -it %s %s %s ' % (run_opts, docker_image, image_opts)
+        interactive_arg = ''
+        if sys.stdin.isatty():
+            logger.log_verbose('Input is a TTY')
+            interactive_arg = ' -i '
+        else:
+            logger.log_verbose('Input is not a TTY')
+
+        run_cmd = 'docker run --rm %s -t %s %s %s ' % (interactive_arg, run_opts, docker_image, image_opts)
         if shell:
             call_args = run_cmd
         else:
@@ -169,6 +196,11 @@ def main():
         dest='shell',
         help='Use the shell to execute the build, run and image options. This can be dangerous if the Dockerfile is from an untrusted source')
 
+    parser.add_argument('-m',
+        action='store',
+        dest='mode',
+        help='Mode to apply to the dockerfile build and run. Mode affects the configuration directives read from the Dockerfile')
+
     parser.add_argument('spec',
         action='store',
         help='The Dockerfile directory, Dockerfile, base directory or image profile, depending on options. Default to determine Dockerfile directory or Dockerfile')
@@ -182,6 +214,7 @@ def main():
     verbose = args.verbose
     run = args.run
     shell = args.shell
+    mode = args.mode
 
     spec_list = []
 
@@ -224,7 +257,7 @@ def main():
         for spec in spec_list:
             process_docker_spec(spec, dockerfile=dockerfile,
                                      verbose=verbose, run=run, shell=shell,
-                                     ignore_missing=ignore_missing)
+                                     ignore_missing=ignore_missing, mode=mode)
     except Exception as e:
         raise Exception('Processing failed with error: %s' % e)
 
