@@ -34,8 +34,10 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
         raise Exception('Spec does not exist: %s' % spec)
 
     # Make sure the mode is valid
-    if mode is not None and mode != '' and re.search('^[A-Za-z0-9]+$', mode) is None:
-        raise Exception('Invalid mode specified - Must be only be A-Za-z0-9')
+    if mode is None:
+        mode = 'default'
+    elif mode == '' or re.search('^[A-Za-z0-9]+$', mode) is None:
+        raise Exception('Invalid mode specified - Must be [A-Za-z0-9]+')
 
     # Work out what to do with the spec and optional dockerfile
     if dockerfile is not None and dockerfile != '':
@@ -199,6 +201,7 @@ def main():
     parser.add_argument('-m',
         action='store',
         dest='mode',
+        default=None,
         help='Mode to apply to the dockerfile build and run. Mode affects the configuration directives read from the Dockerfile')
 
     parser.add_argument('spec',
