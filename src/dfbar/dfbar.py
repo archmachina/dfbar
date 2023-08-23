@@ -264,7 +264,7 @@ def main():
     except Exception as e:
         raise Exception('Processing failed with error: %s' % str(e))
 
-if __name__ == '__main__':
+def cli_entrypoint():
     try:
         main()
     except Exception as e:
@@ -272,3 +272,6 @@ if __name__ == '__main__':
         sys.exit(1)
 
     sys.exit(0)
+
+if __name__ == '__main__':
+    cli_entrypoint()

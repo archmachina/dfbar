@@ -1,11 +1,5 @@
-from .dfbar import main
+from .dfbar import cli_entrypoint
 import sys
 
 if __name__ == '__main__':
-    try:
-        main()
-    except Exception as e:
-        print(e)
-        sys.exit(1)
-
-    sys.exit(0)
+    cli_entrypoint()
