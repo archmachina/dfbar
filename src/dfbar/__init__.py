@@ -1,5 +1,6 @@
-from .dfbar import main
+from .dfbar import *
 
 __all__ = [
-    'main'
+    'main',
+    'process_docker_spec'
 ]

@@ -8,24 +8,49 @@ import re
 import subprocess
 import shlex
 
-class Session:
-    def __init__(self):
-        self.ignore_missing = False
-        self.run = True
-        self.verbose = False
-        self.dockerfile = None
+class Logger:
+    def __init__(self, verbose):
+        self.verbose = verbose
 
-    def verbose_log(self, message):
+    def log_verbose(self, message):
         if self.verbose:
             print(message)
 
-def process_docker_directory(directory, session):
-    session.verbose_log('Processing Directory: %s' % directory)
+    def log_info(self, message):
+        print(message)
 
-    # Read the Dockerfile and process options
-    dockerfile = session.dockerfile
-    if dockerfile is None or dockerfile == '':
-        dockerfile = os.path.join(directory, 'Dockerfile')
+    def log_warning(self, message):
+        print('WARNING: ' + message)
+
+def process_docker_spec(spec, dockerfile=None, verbose=False,
+                             run=True, shell=False, ignore_missing=False):
+    logger = Logger(verbose)
+
+    # Make sure we have a valid spec
+    if spec is None or spec == '':
+        raise Exception('Spec must not be empty')
+
+    if not os.path.exists(spec):
+        raise Exception('Spec does not exist: %s' % spec)
+
+    # Work out what to do with the spec and optional dockerfile
+    if dockerfile is not None and dockerfile != '':
+        # We have a dockerfile reference, so the spec must be a directory
+        if not os.path.isdir(spec):
+            raise Exception('Dockerfile specified, but the spec is not a directory')
+    else:
+        if os.path.isfile(spec):
+            dockerfile = spec
+            spec = os.path.dirname(dockerfile)
+        elif os.path.isdir(spec):
+            dockerfile = os.path.join(spec, 'Dockerfile')
+        else:
+            raise Exception('Could not determine type of target spec: %s' % spec)
+
+    # At this point, spec is the path to the Docker build directory and dockerfile
+    # is the location of the actual Dockerfile
+    logger.log_verbose('Directory: ' + spec)
+    logger.log_verbose('Dockerfile: ' + dockerfile)
 
     build_opts = ""
     run_opts = ""
@@ -37,8 +62,8 @@ def process_docker_directory(directory, session):
         with open(dockerfile, 'r') as file:
             lines = file.read().splitlines()
     except FileNotFoundError as e:
-        print('Dockerfile (%s) not found' % dockerfile)
-        if session.ignore_missing:
+        logger.log_info('Dockerfile (%s) not found' % dockerfile)
+        if ignore_missing:
             return
         else:
             raise
@@ -60,37 +85,43 @@ def process_docker_directory(directory, session):
             image_opts = "%s %s" % (image_opts, match.groups()[0])
             continue
 
-    session.verbose_log('Build Options: %s' % build_opts)
-    session.verbose_log('Run Options: %s' % run_opts)
-    session.verbose_log('Image Options: %s' % image_opts)
+    logger.log_verbose('Build Options: %s' % build_opts)
+    logger.log_verbose('Run Options: %s' % run_opts)
+    logger.log_verbose('Image Options: %s' % image_opts)
+
+    # Configure environment variables for use by docker commands
+    os.environ['DFBAR_DOCKER_DIR'] = spec
+    os.environ['DFBAR_DOCKERFILE'] = dockerfile
+    os.environ['DFBAR_USER_ID'] = str(os.getuid())
+    os.environ['DFBAR_GROUP_ID'] = str(os.getgid())
 
     # Perform a build of the Dockerfile
-    build_cmd = ('docker build -f %s -q %s ' % (dockerfile, directory)) + build_opts
-    if session.shell:
+    build_cmd = ('docker build -f %s -q %s ' % (dockerfile, spec)) + build_opts
+    if shell:
         call_args = build_cmd
     else:
         call_args = shlex.split(build_cmd)
         call_args = [os.path.expandvars(x) for x in call_args]
 
-    session.verbose_log('Build call args: %s' % call_args)
+    logger.log_verbose('Build call args: %s' % call_args)
 
-    docker_image = subprocess.check_output(call_args, shell=session.shell).decode('ascii').splitlines()[0]
-    session.verbose_log("Docker image SHA: %s" % docker_image)
+    docker_image = subprocess.check_output(call_args, shell=shell).decode('ascii').splitlines()[0]
+    logger.log_verbose("Docker image SHA: %s" % docker_image)
 
     # Run the container image
-    if session.run:
-        session.verbose_log('Running container image')
+    if run:
+        logger.log_verbose('Running container image')
 
         run_cmd = 'docker run --rm -it %s %s %s ' % (run_opts, docker_image, image_opts)
-        if session.shell:
+        if shell:
             call_args = run_cmd
         else:
             call_args = shlex.split(run_cmd)
             call_args = [os.path.expandvars(x) for x in call_args]
 
-        session.verbose_log('Run call args: %s' % call_args)
+        logger.log_verbose('Run call args: %s' % call_args)
 
-        subprocess.check_call(call_args, shell=session.shell)
+        subprocess.check_call(call_args, shell=shell)
 
 def main():
     # Process the command line arguments
@@ -100,29 +131,22 @@ def main():
         exit_on_error=False
     )
 
-    # Mutually exclusive group for profile or directory argument
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('-d',
-        action='store',
-        dest='directory',
-        help='A directory containing a Dockerfile to build and run or a base directory, if -b is specified')
-
-    group.add_argument('-p',
-        action='store',
-        dest='profile',
-        help='The name of a directory under ~/.dfbar to build and run')
-
-    # Mutually exclusive group for base directory or Dockerfile specification
+    # Mutually exclusive group to alter default behaviour
     group = parser.add_mutually_exclusive_group(required=False)
+    group.add_argument('-p',
+        action='store_true',
+        dest='profile',
+        help='A profile name to run. This is the name of a directory under ~/.dfbar to build and run')
+
     group.add_argument('-f',
         action='store',
         dest='dockerfile',
-        help='Override the location of the Dockerfile. Only effective with -d')
+        help='Override the location of the Dockerfile. This is not valid is spec resolves to a directory')
 
     group.add_argument('-b',
         action='store_true',
         dest='basedir',
-        help='The directory specified is a base directory and subdirectories should be processed instead. Only effective with -d')
+        help='The "spec" is a directory with subdirectories that should be built and run, in lexical order')
 
     # Other options
     parser.add_argument('-n',
@@ -145,64 +169,64 @@ def main():
         dest='shell',
         help='Use the shell to execute the build, run and image options. This can be dangerous if the Dockerfile is from an untrusted source')
 
+    parser.add_argument('spec',
+        action='store',
+        help='The Dockerfile directory, Dockerfile, base directory or image profile, depending on options. Default to determine Dockerfile directory or Dockerfile')
+
     args = parser.parse_args()
-    session = Session()
+    logger = Logger(args.verbose)
 
-    # These options are global and do not depend on the mode we're running in
-    session.verbose = args.verbose
-    session.run = args.run
-    session.shell = args.shell
+    # Store the options here to allow modification depending on options
+    ignore_missing = args.ignore_missing
+    dockerfile = args.dockerfile
+    verbose = args.verbose
+    run = args.run
+    shell = args.shell
 
-    directories = []
+    spec_list = []
+
+    # Make sure we have a valid spec
+    if args.spec is None or args.spec == '':
+        raise Exception('Spec must not be empty')
+
     # If we have a profile, set the directory to the location of the profile
-    if args.profile is not None and args.profile != "":
-        if args.basedir:
-            print('Warning: Base directory is not valid with a profile name.')
+    if args.profile:
+        if ignore_missing:
+            logger.log_warning('ignore missing does not apply with a profile name.')
+            ignore_missing = False
 
-        if args.dockerfile:
-            print('Warning: Dockerfile is not valid with a profile name.')
+        # dockerfile should be empty and we have an array of a single directory/spec, representing the
+        # profile to run
+        spec_list = [ os.path.join(os.path.expanduser('~'), '.dfbar', args.spec) ]
+    elif args.basedir:
+        if dockerfile:
+            logger.log_warning('Dockerfile is not valid with a base directory.')
+            dockerfile = None
 
-        if args.ignore_missing:
-            print('Warning: ignore missing does not apply with a profile name.')
-
-        directories = [ os.path.join(os.path.expanduser('~'), '.dfbar', args.profile) ]
+        # Collect a list of subdirectories and sort lexically
+        spec_list = [x.path for x in os.scandir(args.spec) if x.is_dir() ]
+        spec_list.sort()
     else:
-        # No profile, so a directory is mandatory
-        if args.directory is None or args.directory == '':
-            raise Exception('Could not determine directory. Profile or directory missing')
+        # Not a base directory or profile
 
-        directories = [ args.directory ]
+        if ignore_missing:
+            logger.log_warning('ignore missing does not apply with a single directory.')
+            ignore_missing = False
 
-        # If basedir is true, then the directory specified is a parent to the actual Dockerfile directories
-        # and subdirectories should be enumerated
-        if args.basedir:
-            if args.dockerfile:
-                print('Warning: Dockerfile is not valid with a base directory.')
+        spec_list = [ args.spec ]
 
-            # Collect a list of subdirectories and sort lexically
-            directories = [x.path for x in os.scandir(args.directory) if x.is_dir() ]
-            directories.sort()
+    logger.log_verbose('Processing specs:')
+    logger.log_verbose(json.dumps(spec_list, indent=2))
+    logger.log_verbose('')
 
-            # This is a basedir, so accept the ignore_missing argument
-            session.ignore_missing = args.ignore_missing
-        else:
-            # This is a single dockerfile directory
-            if args.ignore_missing:
-                print('Warning: ignore missing does not apply with a single directory.')
-
-            # No basedir, so the dockerfile may be overridden
-            session.dockerfile = args.dockerfile
-
-    session.verbose_log('Processing directories:')
-    session.verbose_log(json.dumps(directories, indent=2))
-    session.verbose_log('')
-
-    # Process the directory/directories
+    # Process the specs
     try:
-        for dirname in directories:
-            process_docker_directory(dirname, session)
+        for spec in spec_list:
+            process_docker_spec(spec, dockerfile=dockerfile,
+                                     verbose=verbose, run=run, shell=shell,
+                                     ignore_missing=ignore_missing)
     except Exception as e:
-        raise Exception('Directory processing failed with error: %s' % e)
+        raise Exception('Processing failed with error: %s' % e)
 
 if __name__ == '__main__':
     try:
