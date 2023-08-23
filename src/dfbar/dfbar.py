@@ -262,7 +262,7 @@ def main():
                                      verbose=verbose, run=run, shell=shell,
                                      ignore_missing=ignore_missing, mode=mode)
     except Exception as e:
-        raise Exception('Processing failed with error: %s' % e)
+        raise Exception('Processing failed with error: %s' % str(e))
 
 if __name__ == '__main__':
     try:
