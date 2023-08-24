@@ -257,6 +257,13 @@ def main():
             logger.log_warning('ignore missing does not apply with a profile name.')
             ignore_missing = False
 
+        # Shell parsing is automatically allowed for profiles, unless disabled by environment var
+        env_shell = os.environ.get('DFBAR_ALLOW_PROFILE_SHELL')
+        if env_shell is not None and env_shell.lower() not in ['1', 'true']:
+            allow_shell = False
+        else:
+            allow_shell = True
+
         # dockerfile should be empty and we have an array of a single directory/spec, representing the
         # profile to run
         spec_list = [ os.path.join(os.path.expanduser('~'), '.dfbar', args.spec) ]
