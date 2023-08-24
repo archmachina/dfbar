@@ -23,7 +23,8 @@ class Logger:
         print('WARNING: ' + message)
 
 def process_docker_spec(spec, dockerfile=None, verbose=False,
-                             run=True, shell=False, ignore_missing=False, mode=''):
+                             run=True, allow_shell=False, ignore_missing=False,
+                             mode=None, custom_opts=[]):
     logger = Logger(verbose)
 
     # Make sure we have a valid spec
@@ -61,6 +62,7 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
     build_opts = ""
     run_opts = ""
     image_opts = ""
+    shell = False
 
     # Read the dockerfile for processing
     lines = []
@@ -91,6 +93,14 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
             image_opts = "%s %s" % (image_opts, match.groups()[0])
             continue
 
+        match = re.search('^\s*#\s*USE_SHELL\s*(.*)', line)
+        if match is not None:
+            if not allow_shell:
+                raise Exception('Dockerfile requires shell parsing, but shell parsing not allowed')
+
+            shell = True
+            continue
+
         if mode is not None and mode != '':
             match = re.search('^\s*#\s*' + mode + '_BUILD_OPTS\s*(.*)', line)
             if match is not None:
@@ -110,12 +120,14 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
     logger.log_verbose('Build Options: %s' % build_opts)
     logger.log_verbose('Run Options: %s' % run_opts)
     logger.log_verbose('Image Options: %s' % image_opts)
+    logger.log_verbose('Custom Options: %s' % custom_opts)
 
     # Configure environment variables for use by docker commands
     os.environ['DFBAR_DOCKER_DIR'] = spec
     os.environ['DFBAR_DOCKERFILE'] = dockerfile
     os.environ['DFBAR_USER_ID'] = str(os.getuid())
     os.environ['DFBAR_GROUP_ID'] = str(os.getgid())
+    os.environ['DFBAR_CWD'] = os.getcwd()
 
     # Perform a build of the Dockerfile
     build_cmd = ('docker build -f %s -q %s ' % (dockerfile, spec)) + build_opts
@@ -144,9 +156,12 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
         run_cmd = 'docker run --rm %s -t %s %s %s ' % (interactive_arg, run_opts, docker_image, image_opts)
         if shell:
             call_args = run_cmd
+            for opt in custom_opts:
+                call_args = '%s "%s"' % (call_args, opt.replace('"', '\\"'))
         else:
             call_args = shlex.split(run_cmd)
             call_args = [os.path.expandvars(x) for x in call_args]
+            call_args = call_args + custom_opts
 
         logger.log_verbose('Run call args: %s' % call_args)
 
@@ -195,8 +210,8 @@ def main():
 
     parser.add_argument('-s',
         action='store_true',
-        dest='shell',
-        help='Use the shell to execute the build, run and image options. This can be dangerous if the Dockerfile is from an untrusted source')
+        dest='allow_shell',
+        help='Allow use of the shell to execute the build, run and image options. This can be dangerous if the Dockerfile is from an untrusted source')
 
     parser.add_argument('-m',
         action='store',
@@ -208,6 +223,11 @@ def main():
         action='store',
         help='The Dockerfile directory, Dockerfile, base directory or image profile, depending on options. Default to determine Dockerfile directory or Dockerfile')
 
+    parser.add_argument('custom_opts',
+        action='store',
+        nargs=argparse.REMAINDER,
+        help='Custom options to supply to the image being run')
+
     args = parser.parse_args()
     logger = Logger(args.verbose)
 
@@ -216,8 +236,9 @@ def main():
     dockerfile = args.dockerfile
     verbose = args.verbose
     run = args.run
-    shell = args.shell
+    allow_shell = args.allow_shell
     mode = args.mode
+    custom_opts = args.custom_opts
 
     spec_list = []
 
@@ -259,8 +280,9 @@ def main():
     try:
         for spec in spec_list:
             process_docker_spec(spec, dockerfile=dockerfile,
-                                     verbose=verbose, run=run, shell=shell,
-                                     ignore_missing=ignore_missing, mode=mode)
+                                     verbose=verbose, run=run, allow_shell=allow_shell,
+                                     ignore_missing=ignore_missing, mode=mode,
+                                     custom_opts=custom_opts)
     except Exception as e:
         raise Exception('Processing failed with error: %s' % str(e))
 
