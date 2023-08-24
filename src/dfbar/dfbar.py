@@ -240,6 +240,11 @@ def main():
     mode = args.mode
     custom_opts = args.custom_opts
 
+    # Allow use of the shell for parsing by environment variable
+    env_shell = os.environ.get('DFBAR_ALLOW_SHELL')
+    if env_shell is not None and env_shell.lower() in ['1', 'true']:
+        allow_shell = True
+
     spec_list = []
 
     # Make sure we have a valid spec
