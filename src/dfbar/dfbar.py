@@ -165,7 +165,9 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
 
         logger.log_verbose('Run call args: %s' % call_args)
 
-        subprocess.check_call(call_args, shell=shell)
+        return subprocess.call(call_args, shell=shell)
+
+    return 0
 
 def main():
     # Process the command line arguments
@@ -289,23 +291,27 @@ def main():
     logger.log_verbose('')
 
     # Process the specs
+    ret = 0
     try:
         for spec in spec_list:
-            process_docker_spec(spec, dockerfile=dockerfile,
+            ret = process_docker_spec(spec, dockerfile=dockerfile,
                                      verbose=verbose, run=run, allow_shell=allow_shell,
                                      ignore_missing=ignore_missing, mode=mode,
                                      custom_opts=custom_opts)
+
+            if ret != 0:
+                break
     except Exception as e:
         raise Exception('Processing failed with error: %s' % str(e))
 
+    return ret
+
 def cli_entrypoint():
     try:
-        main()
+        sys.exit(main())
     except Exception as e:
         print(e)
         sys.exit(1)
-
-    sys.exit(0)
 
 if __name__ == '__main__':
     cli_entrypoint()
