@@ -139,7 +139,12 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
 
     logger.log_verbose('Build call args: %s' % call_args)
 
-    docker_image = subprocess.check_output(call_args, shell=shell).decode('ascii').splitlines()[0]
+    proc = subprocess.run(call_args, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if proc.returncode != 0:
+        print(proc.stdout.decode('ascii'))
+        return proc.returncode
+
+    docker_image = proc.stdout.decode('ascii').splitlines()[0]
     logger.log_verbose("Docker image SHA: %s" % docker_image)
 
     # Run the container image
@@ -165,7 +170,7 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
 
         logger.log_verbose('Run call args: %s' % call_args)
 
-        return subprocess.call(call_args, shell=shell)
+        return subprocess.run(call_args, shell=shell).returncode
 
     return 0
 
