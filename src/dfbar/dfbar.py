@@ -139,6 +139,7 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
 
     logger.log_verbose('Build call args: %s' % call_args)
 
+    sys.stdout.flush()
     proc = subprocess.run(call_args, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if proc.returncode != 0:
         print(proc.stdout.decode('ascii'))
@@ -170,6 +171,7 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
 
         logger.log_verbose('Run call args: %s' % call_args)
 
+        sys.stdout.flush()
         return subprocess.run(call_args, shell=shell).returncode
 
     return 0
@@ -313,9 +315,12 @@ def main():
 
 def cli_entrypoint():
     try:
-        sys.exit(main())
+        ret = main()
+        sys.stdout.flush()
+        sys.exit(ret)
     except Exception as e:
         print(e)
+        sys.stdout.flush()
         sys.exit(1)
 
 if __name__ == '__main__':
