@@ -167,7 +167,7 @@ def process_docker_spec(spec, /, dockerfile=None, debug=False,
 
     return 0
 
-def main():
+def process_args():
     # Process the command line arguments
     parser = argparse.ArgumentParser(
         prog='dfbar',
@@ -311,9 +311,9 @@ def main():
 
     return ret
 
-def cli_entrypoint():
+def main():
     try:
-        ret = main()
+        ret = process_args()
         sys.stdout.flush()
         sys.exit(ret)
     except Exception as e:
@@ -322,4 +322,4 @@ def cli_entrypoint():
         sys.exit(1)
 
 if __name__ == '__main__':
-    cli_entrypoint()
+    main()
