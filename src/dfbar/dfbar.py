@@ -7,32 +7,19 @@ import json
 import re
 import subprocess
 import shlex
+import logging
 
-class Logger:
-    def __init__(self, verbose):
-        self.verbose = verbose
-
-    def log_verbose(self, message):
-        if self.verbose:
-            print(message)
-
-    def log_info(self, message):
-        print(message)
-
-    def log_warning(self, message):
-        print('WARNING: ' + message)
-
-def process_docker_spec(spec, dockerfile=None, verbose=False,
-                             run=True, allow_shell=False, ignore_missing=False,
-                             mode=None, custom_opts=[]):
-    logger = Logger(verbose)
+def process_docker_spec(spec, /, dockerfile=None, debug=False,
+                        run=True, allow_shell=False, ignore_missing=False,
+                        mode=None, custom_opts=[]):
+    logger = logging.getLogger(__name__)
 
     # Make sure we have a valid spec
     if spec is None or spec == '':
         raise Exception('Spec must not be empty')
 
     if not os.path.exists(spec):
-        raise Exception('Spec does not exist: %s' % spec)
+        raise Exception(f'Spec does not exist: {spec}')
 
     # Make sure the mode is valid
     if mode is None:
@@ -52,12 +39,12 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
         elif os.path.isdir(spec):
             dockerfile = os.path.join(spec, 'Dockerfile')
         else:
-            raise Exception('Could not determine type of target spec: %s' % spec)
+            raise Exception(f'Could not determine type of target spec: {spec}')
 
     # At this point, spec is the path to the Docker build directory and dockerfile
     # is the location of the actual Dockerfile
-    logger.log_verbose('Directory: ' + spec)
-    logger.log_verbose('Dockerfile: ' + dockerfile)
+    logger.debug(f'Directory: {spec}')
+    logger.debug(f'Dockerfile: {dockerfile}')
 
     build_opts = ""
     run_opts = ""
@@ -70,27 +57,28 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
         with open(dockerfile, 'r') as file:
             lines = file.read().splitlines()
     except FileNotFoundError as e:
-        logger.log_info('Dockerfile (%s) not found' % dockerfile)
         if ignore_missing:
+            logger.log_warning(f'Dockerfile ({dockerfile}) not found')
             return
         else:
+            logger.log_error(f'Dockerfile ({dockerfile}) not found')
             raise
 
     # Look for any of the Dockerfile options affecting the build or run
     for line in lines:
         match = re.search('^\s*#\s*BUILD_OPTS\s*(.*)', line)
         if match is not None:
-            build_opts = "%s %s" % (build_opts, match.groups()[0])
+            build_opts = f'{build_opts} {match.groups()[0]}'
             continue
 
         match = re.search('^\s*#\s*RUN_OPTS\s*(.*)', line)
         if match is not None:
-            run_opts = "%s %s" % (run_opts, match.groups()[0])
+            run_opts = f'{run_opts} {match.groups()[0]}'
             continue
 
         match = re.search('^\s*#\s*IMAGE_OPTS\s*(.*)', line)
         if match is not None:
-            image_opts = "%s %s" % (image_opts, match.groups()[0])
+            image_opts = f'{image_opts} {match.groups()[0]}'
             continue
 
         match = re.search('^\s*#\s*USE_SHELL\s*(.*)', line)
@@ -104,23 +92,23 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
         if mode is not None and mode != '':
             match = re.search('^\s*#\s*' + mode + '_BUILD_OPTS\s*(.*)', line)
             if match is not None:
-                build_opts = "%s %s" % (build_opts, match.groups()[0])
+                build_opts = f'{build_opts} {match.groups()[0]}'
                 continue
 
             match = re.search('^\s*#\s*' + mode + '_RUN_OPTS\s*(.*)', line)
             if match is not None:
-                run_opts = "%s %s" % (run_opts, match.groups()[0])
+                run_opts = f'{run_opts} {match.groups()[0]}'
                 continue
 
             match = re.search('^\s*#\s*' + mode + '_IMAGE_OPTS\s*(.*)', line)
             if match is not None:
-                image_opts = "%s %s" % (image_opts, match.groups()[0])
+                image_opts = f'{image_opts} {match.groups()[0]}'
                 continue
 
-    logger.log_verbose('Build Options: %s' % build_opts)
-    logger.log_verbose('Run Options: %s' % run_opts)
-    logger.log_verbose('Image Options: %s' % image_opts)
-    logger.log_verbose('Custom Options: %s' % custom_opts)
+    logger.debug(f'Build Options: {build_opts}')
+    logger.debug(f'Run Options: {run_opts}')
+    logger.debug(f'Image Options: {image_opts}')
+    logger.debug(f'Custom Options: {custom_opts}')
 
     # Configure environment variables for use by docker commands
     os.environ['DFBAR_DOCKER_DIR'] = spec
@@ -130,36 +118,36 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
     os.environ['DFBAR_CWD'] = os.getcwd()
 
     # Perform a build of the Dockerfile
-    build_cmd = ('docker build -f %s -q %s ' % (dockerfile, spec)) + build_opts
+    build_cmd = f'docker build -f {dockerfile} -q {spec} {build_opts}'
     if shell:
         call_args = build_cmd
     else:
         call_args = shlex.split(build_cmd)
         call_args = [os.path.expandvars(x) for x in call_args]
 
-    logger.log_verbose('Build call args: %s' % call_args)
+    logger.debug(f'Build call args: {call_args}')
 
     sys.stdout.flush()
     proc = subprocess.run(call_args, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if proc.returncode != 0:
-        print(proc.stdout.decode('ascii'))
+        logger.log_error(proc.stdout.decode('ascii'))
         return proc.returncode
 
     docker_image = proc.stdout.decode('ascii').splitlines()[0]
-    logger.log_verbose("Docker image SHA: %s" % docker_image)
+    logger.debug(f'Docker image SHA: {docker_image}')
 
     # Run the container image
     if run:
-        logger.log_verbose('Running container image')
+        logger.debug('Running container image')
 
         interactive_arg = ''
         if sys.stdin.isatty():
-            logger.log_verbose('Input is a TTY')
+            logger.debug('Input is a TTY')
             interactive_arg = ' -i '
         else:
-            logger.log_verbose('Input is not a TTY')
+            logger.debug('Input is not a TTY')
 
-        run_cmd = 'docker run --rm %s -t %s %s %s ' % (interactive_arg, run_opts, docker_image, image_opts)
+        run_cmd = f'docker run --rm {interactive_arg} -t {run_opts} {docker_image} {image_opts}'
         if shell:
             call_args = run_cmd
             for opt in custom_opts:
@@ -169,7 +157,7 @@ def process_docker_spec(spec, dockerfile=None, verbose=False,
             call_args = [os.path.expandvars(x) for x in call_args]
             call_args = call_args + custom_opts
 
-        logger.log_verbose('Run call args: %s' % call_args)
+        logger.debug(f'Run call args: {call_args}')
 
         sys.stdout.flush()
         return subprocess.run(call_args, shell=shell).returncode
@@ -212,10 +200,10 @@ def main():
         dest='ignore_missing',
         help='Ignore missing Dockerfiles when running with a base directory')
 
-    parser.add_argument('-v',
+    parser.add_argument('-v', '-d',
         action='store_true',
-        dest='verbose',
-        help='Verbose output')
+        dest='debug',
+        help='Verbose/debug output')
 
     parser.add_argument('-s',
         action='store_true',
@@ -238,16 +226,22 @@ def main():
         help='Custom options to supply to the image being run')
 
     args = parser.parse_args()
-    logger = Logger(args.verbose)
 
     # Store the options here to allow modification depending on options
     ignore_missing = args.ignore_missing
     dockerfile = args.dockerfile
-    verbose = args.verbose
+    debug = args.debug
     run = args.run
     allow_shell = args.allow_shell
     mode = args.mode
     custom_opts = args.custom_opts
+
+    # Logging configuration
+    level = logging.INFO
+    if debug:
+        level = logging.DEBUG
+    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logger = logging.getLogger(__name__)
 
     # Allow use of the shell for parsing by environment variable
     env_shell = os.environ.get('DFBAR_ALLOW_SHELL')
@@ -293,23 +287,24 @@ def main():
 
         spec_list = [ args.spec ]
 
-    logger.log_verbose('Processing specs:')
-    logger.log_verbose(json.dumps(spec_list, indent=2))
-    logger.log_verbose('')
+    logger.debug('Processing specs:')
+    logger.debug(json.dumps(spec_list, indent=2))
+    logger.debug('')
 
     # Process the specs
     ret = 0
     try:
         for spec in spec_list:
             ret = process_docker_spec(spec, dockerfile=dockerfile,
-                                     verbose=verbose, run=run, allow_shell=allow_shell,
+                                     debug=debug, run=run, allow_shell=allow_shell,
                                      ignore_missing=ignore_missing, mode=mode,
                                      custom_opts=custom_opts)
 
             if ret != 0:
                 break
     except Exception as e:
-        raise Exception('Processing failed with error: %s' % str(e))
+        logger.log_error(f'Processing failed with error: {e}')
+        return 1
 
     return ret
 
@@ -319,7 +314,7 @@ def cli_entrypoint():
         sys.stdout.flush()
         sys.exit(ret)
     except Exception as e:
-        print(e)
+        logging.getLogger(__name__).exception(e)
         sys.stdout.flush()
         sys.exit(1)
 
