@@ -9,29 +9,32 @@ import subprocess
 import shlex
 import logging
 
+class InvalidSpecException(Exception):
+    pass
+
 def process_docker_spec(spec, /, dockerfile=None, debug=False,
                         run=True, allow_shell=False, ignore_missing=False,
-                        mode=None, custom_opts=[]):
+                        mode=None, custom_opts=[]) -> int:
     logger = logging.getLogger(__name__)
 
     # Make sure we have a valid spec
     if spec is None or spec == '':
-        raise Exception('Spec must not be empty')
+        raise InvalidSpecException('Spec must not be empty')
 
     if not os.path.exists(spec):
-        raise Exception(f'Spec does not exist: {spec}')
+        raise InvalidSpecException(f'Spec does not exist: {spec}')
 
     # Make sure the mode is valid
     if mode is None:
         mode = 'default'
     elif mode == '' or re.search('^[A-Za-z0-9]+$', mode) is None:
-        raise Exception('Invalid mode specified - Must be [A-Za-z0-9]+')
+        raise ValueError('Invalid mode specified - Must be [A-Za-z0-9]+')
 
     # Work out what to do with the spec and optional dockerfile
     if dockerfile is not None and dockerfile != '':
         # We have a dockerfile reference, so the spec must be a directory
         if not os.path.isdir(spec):
-            raise Exception('Dockerfile specified, but the spec is not a directory')
+            raise InvalidSpecException('Dockerfile specified, but the spec is not a directory')
     else:
         if os.path.isfile(spec):
             dockerfile = spec
@@ -39,7 +42,7 @@ def process_docker_spec(spec, /, dockerfile=None, debug=False,
         elif os.path.isdir(spec):
             dockerfile = os.path.join(spec, 'Dockerfile')
         else:
-            raise Exception(f'Could not determine type of target spec: {spec}')
+            raise InvalidSpecException(f'Could not determine type of target spec (directory or file): {spec}')
 
     # At this point, spec is the path to the Docker build directory and dockerfile
     # is the location of the actual Dockerfile
@@ -58,10 +61,10 @@ def process_docker_spec(spec, /, dockerfile=None, debug=False,
             lines = file.read().splitlines()
     except FileNotFoundError as e:
         if ignore_missing:
-            logger.log_warning(f'Dockerfile ({dockerfile}) not found')
-            return
+            logger.warning(f'Dockerfile ({dockerfile}) not found')
+            return 0
         else:
-            logger.log_error(f'Dockerfile ({dockerfile}) not found')
+            logger.error(f'Dockerfile ({dockerfile}) not found')
             raise
 
     # Look for any of the Dockerfile options affecting the build or run
@@ -130,7 +133,7 @@ def process_docker_spec(spec, /, dockerfile=None, debug=False,
     sys.stdout.flush()
     proc = subprocess.run(call_args, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if proc.returncode != 0:
-        logger.log_error(proc.stdout.decode('ascii'))
+        logger.error(proc.stdout.decode('ascii'))
         return proc.returncode
 
     docker_image = proc.stdout.decode('ascii').splitlines()[0]
@@ -257,7 +260,7 @@ def main():
     # If we have a profile, set the directory to the location of the profile
     if args.profile:
         if ignore_missing:
-            logger.log_warning('ignore missing does not apply with a profile name.')
+            logger.warning('ignore missing does not apply with a profile name.')
             ignore_missing = False
 
         # Shell parsing is automatically allowed for profiles, unless disabled by environment var
@@ -272,7 +275,7 @@ def main():
         spec_list = [ os.path.join(os.path.expanduser('~'), '.dfbar', args.spec) ]
     elif args.basedir:
         if dockerfile:
-            logger.log_warning('Dockerfile is not valid with a base directory.')
+            logger.warning('Dockerfile is not valid with a base directory.')
             dockerfile = None
 
         # Collect a list of subdirectories and sort lexically
@@ -282,7 +285,7 @@ def main():
         # Not a base directory or profile
 
         if ignore_missing:
-            logger.log_warning('ignore missing does not apply with a single directory.')
+            logger.warning('ignore missing does not apply with a single directory.')
             ignore_missing = False
 
         spec_list = [ args.spec ]
@@ -303,7 +306,7 @@ def main():
             if ret != 0:
                 break
     except Exception as e:
-        logger.log_error(f'Processing failed with error: {e}')
+        logger.error(f'Processing failed with error: {e}')
         return 1
 
     return ret
