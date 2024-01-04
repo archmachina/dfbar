@@ -7,7 +7,7 @@ on:
       - "v*"
 
 jobs:
-  push:
+  pypi_release:
     name: "push"
     runs-on: ubuntu-latest
 
@@ -17,15 +17,21 @@ jobs:
         with:
           submodules: true
 
+      - name: python setup
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
       - name: release
         shell: bash
         run: |
-          ./entrypoint build push
+          pip install -r requirements.txt && \
+          bdast ./entrypoint.yaml pypi_release -v
         env:
-          TWINE_USERNAME: "__token__"
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+          SECRET_PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
 
-  release:
+  github_release:
     name: "release"
     runs-on: ubuntu-latest
 
@@ -35,9 +41,17 @@ jobs:
         with:
           submodules: true
 
+      - name: python setup
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
       - name: release
         shell: bash
         run: |
-          ./entrypoint release
+          pip install -r requirements.txt && \
+          bdast ./entrypoint.yaml github_release -v
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SECRET_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
