@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
-import os
-import sys
 import argparse
 import json
-import re
-import subprocess
-import shlex
 import logging
+import os
+import re
+import shlex
+import subprocess
+import sys
 
 
 class InvalidSpecException(Exception):
@@ -74,12 +74,12 @@ def process_docker_spec(
         with open(dockerfile, "r") as file:
             lines = file.read().splitlines()
     except FileNotFoundError as e:
-        if ignore_missing:
-            logger.warning(f"Dockerfile ({dockerfile}) not found")
-            return 0
-        else:
-            logger.error(f"Dockerfile ({dockerfile}) not found")
+        if not ignore_missing:
+            logger.error("Dockerfile ({dockerfile}) not found: %s", e)
             raise
+
+        logger.warning("Dockerfile ({dockerfile}) not found %s", e)
+        return 0
 
     # Look for any of the Dockerfile options affecting the build or run
     for line in lines:
@@ -109,17 +109,17 @@ def process_docker_spec(
             continue
 
         if mode is not None and mode != "":
-            match = re.search(r"^\s*#\s*" + mode + "_BUILD_OPTS\s*(.*)", line)
+            match = re.search(r"^\s*#\s*" + mode + r"_BUILD_OPTS\s*(.*)", line)
             if match is not None:
                 build_opts = f"{build_opts} {match.groups()[0]}"
                 continue
 
-            match = re.search(r"^\s*#\s*" + mode + "_RUN_OPTS\s*(.*)", line)
+            match = re.search(r"^\s*#\s*" + mode + r"_RUN_OPTS\s*(.*)", line)
             if match is not None:
                 run_opts = f"{run_opts} {match.groups()[0]}"
                 continue
 
-            match = re.search(r"^\s*#\s*" + mode + "_IMAGE_OPTS\s*(.*)", line)
+            match = re.search(r"^\s*#\s*" + mode + r"_IMAGE_OPTS\s*(.*)", line)
             if match is not None:
                 image_opts = f"{image_opts} {match.groups()[0]}"
                 continue
