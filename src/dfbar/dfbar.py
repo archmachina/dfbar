@@ -37,7 +37,7 @@ def process_docker_spec(
     # Make sure the mode is valid
     if mode is None:
         mode = "default"
-    elif mode == "" or re.search("^[A-Za-z0-9]+$", mode) is None:
+    elif mode == "" or re.search(r"^[A-Za-z0-9]+$", mode) is None:
         raise ValueError("Invalid mode specified - Must be [A-Za-z0-9]+")
 
     # Work out what to do with the spec and optional dockerfile
@@ -83,22 +83,22 @@ def process_docker_spec(
 
     # Look for any of the Dockerfile options affecting the build or run
     for line in lines:
-        match = re.search("^\s*#\s*BUILD_OPTS\s*(.*)", line)
+        match = re.search(r"^\s*#\s*BUILD_OPTS\s*(.*)", line)
         if match is not None:
             build_opts = f"{build_opts} {match.groups()[0]}"
             continue
 
-        match = re.search("^\s*#\s*RUN_OPTS\s*(.*)", line)
+        match = re.search(r"^\s*#\s*RUN_OPTS\s*(.*)", line)
         if match is not None:
             run_opts = f"{run_opts} {match.groups()[0]}"
             continue
 
-        match = re.search("^\s*#\s*IMAGE_OPTS\s*(.*)", line)
+        match = re.search(r"^\s*#\s*IMAGE_OPTS\s*(.*)", line)
         if match is not None:
             image_opts = f"{image_opts} {match.groups()[0]}"
             continue
 
-        match = re.search("^\s*#\s*USE_SHELL\s*(.*)", line)
+        match = re.search(r"^\s*#\s*USE_SHELL\s*(.*)", line)
         if match is not None:
             if not allow_shell:
                 raise Exception(
@@ -109,17 +109,17 @@ def process_docker_spec(
             continue
 
         if mode is not None and mode != "":
-            match = re.search("^\s*#\s*" + mode + "_BUILD_OPTS\s*(.*)", line)
+            match = re.search(r"^\s*#\s*" + mode + "_BUILD_OPTS\s*(.*)", line)
             if match is not None:
                 build_opts = f"{build_opts} {match.groups()[0]}"
                 continue
 
-            match = re.search("^\s*#\s*" + mode + "_RUN_OPTS\s*(.*)", line)
+            match = re.search(r"^\s*#\s*" + mode + "_RUN_OPTS\s*(.*)", line)
             if match is not None:
                 run_opts = f"{run_opts} {match.groups()[0]}"
                 continue
 
-            match = re.search("^\s*#\s*" + mode + "_IMAGE_OPTS\s*(.*)", line)
+            match = re.search(r"^\s*#\s*" + mode + "_IMAGE_OPTS\s*(.*)", line)
             if match is not None:
                 image_opts = f"{image_opts} {match.groups()[0]}"
                 continue
@@ -238,7 +238,10 @@ def process_args():
         "-s",
         action="store_true",
         dest="allow_shell",
-        help="Allow use of the shell to execute the build, run and image options. This can be dangerous if the Dockerfile is from an untrusted source",
+        help=(
+            "Allow use of the shell to execute the build, run and image options. "
+            "This can be dangerous if the Dockerfile is from an untrusted source"
+        ),
     )
 
     parser.add_argument(
@@ -246,13 +249,19 @@ def process_args():
         action="store",
         dest="mode",
         default=None,
-        help="Mode to apply to the dockerfile build and run. Mode affects the configuration directives read from the Dockerfile",
+        help=(
+            "Mode to apply to the dockerfile build and run. Mode affects the "
+            "configuration directives read from the Dockerfile"
+        ),
     )
 
     parser.add_argument(
         "spec",
         action="store",
-        help="The Dockerfile directory, Dockerfile, base directory or image profile, depending on options. Default to determine Dockerfile directory or Dockerfile",
+        help=(
+            "The Dockerfile directory, Dockerfile, base directory or image profile, "
+            "depending on options. Default to determine Dockerfile directory or Dockerfile"
+        ),
     )
 
     parser.add_argument(
