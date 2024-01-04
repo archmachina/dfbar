@@ -138,6 +138,9 @@ def process_docker_spec(
 
     # Perform a build of the Dockerfile
     build_cmd = f"docker build -f {dockerfile} -q {spec} {build_opts}"
+
+    call_args: list[str] | str
+
     if shell:
         call_args = build_cmd
     else:
