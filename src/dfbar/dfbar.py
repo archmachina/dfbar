@@ -157,7 +157,7 @@ def process_docker_spec(
         logger.error(proc.stdout.decode("ascii"))
         return proc.returncode
 
-    docker_image = proc.stdout.decode("ascii").splitlines()[0]
+    docker_image = proc.stdout.decode("ascii").splitlines()[-1]
     logger.debug(f"Docker image SHA: {docker_image}")
 
     # Run the container image
