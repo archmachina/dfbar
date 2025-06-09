@@ -1,15 +1,14 @@
 ---
 
-name: main-build
+name: push_tag_v
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
+    tags:
+      - "v*"
 
 jobs:
-  build:
-    name: "build"
+  push_tag_v:
+    name: "push_tag_v"
     runs-on: ubuntu-latest
 
     steps:
@@ -24,8 +23,12 @@ jobs:
           python-version: '3.x'
           cache: 'pip'
 
-      - name: build
+      - name: push_tag_v
         shell: bash
         run: |
-          pip install -r requirements.txt && \
-          bdast ./entrypoint.yaml build -v
+          ./entrypoint push_tag_v
+        env:
+          SECRET_REGISTRY_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+          SECRET_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SECRET_PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+
