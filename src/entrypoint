@@ -1,0 +1,5 @@
+#!/bin/bash
+
+exec python3 -m dfbar "$@"
+
+exit 1
