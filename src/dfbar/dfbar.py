@@ -67,6 +67,7 @@ def process_docker_spec(
     run_opts = ""
     image_opts = ""
     shell = False
+    engine = "docker"
 
     # Read the dockerfile for processing
     lines = []
@@ -108,6 +109,14 @@ def process_docker_spec(
             shell = True
             continue
 
+        match = re.search(r"^\s*#\s*ENGINE\s*(.*)", line)
+        if match is not None:
+            engine_opt = match.groups()[0].strip()
+            if engine_opt not in ["docker", "podman"]:
+                raise Exception("Unsupported engine. Must be podman or docker")
+
+            engine = engine_opt
+
         if mode is not None and mode != "":
             match = re.search(r"^\s*#\s*" + mode + r"_BUILD_OPTS\s*(.*)", line)
             if match is not None:
@@ -127,6 +136,7 @@ def process_docker_spec(
     logger.debug(f"Build Options: {build_opts}")
     logger.debug(f"Run Options: {run_opts}")
     logger.debug(f"Image Options: {image_opts}")
+    logger.debug(f"Engine: {engine}")
     logger.debug(f"Custom Options: {custom_opts}")
 
     # Configure environment variables for use by docker commands
@@ -137,7 +147,7 @@ def process_docker_spec(
     os.environ["DFBAR_CWD"] = os.getcwd()
 
     # Perform a build of the Dockerfile
-    build_cmd = f"docker build -f {dockerfile} -q {spec} {build_opts}"
+    build_cmd = f"{engine} build -f {dockerfile} -q {spec} {build_opts}"
 
     call_args: list[str] | str
 
@@ -171,7 +181,7 @@ def process_docker_spec(
         else:
             logger.debug("Input is not a TTY")
 
-        run_cmd = f"docker run --rm {interactive_arg} -t {run_opts} {docker_image} {image_opts}"
+        run_cmd = f"{engine} run --rm {interactive_arg} -t {run_opts} {docker_image} {image_opts}"
         if shell:
             call_args = run_cmd
             for opt in custom_opts:
