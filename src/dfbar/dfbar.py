@@ -8,11 +8,208 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
+import io
 
+logger = logging.getLogger(__name__)
+
+def check_type(item, check_type, message):
+    if not isinstance(item, check_type):
+        raise TypeError(message)
+
+def check_val(result, message):
+    if not result:
+        raise ValueError(message)
 
 class InvalidSpecException(Exception):
     pass
 
+class SpecSession():
+    def __init__(self, spec, dockerfile, custom_opts, allow_shell, mode, expanded_dockerfile):
+
+        self.spec = spec
+        self.dockerfile = dockerfile
+        self.custom_opts = custom_opts
+        self.allow_shell = allow_shell
+        self.mode = mode
+        self.expanded_dockerfile = expanded_dockerfile
+
+        self.engine = "docker"
+        self.shell = False
+        self.image_opts = ""
+        self.run_opts = ""
+        self.build_opts = ""
+        self.docker_image = ""
+
+        # Configure environment variables for subprocesses
+        self.env = os.environ.copy()
+        self.env["DFBAR_DOCKER_DIR"] = spec
+        self.env["DFBAR_DOCKERFILE"] = dockerfile
+        self.env["DFBAR_USER_ID"] = str(os.getuid())
+        self.env["DFBAR_GROUP_ID"] = str(os.getgid())
+        self.env["DFBAR_CWD"] = os.getcwd()
+
+    def parse_options(self, lines):
+
+        # Check incoming arguments
+        check_type(lines, list, "Invalid type for lines argument")
+        for line in lines:
+            check_type(line, str, "Invalid type for lines member. Must be str")
+
+        # Look for any of the Dockerfile options affecting the build or run
+        for line in lines:
+            match = re.search(r"^\s*#\s*BUILD_OPTS\s*(.*)", line)
+            if match is not None:
+                self.build_opts = f"{self.build_opts} {match.groups()[0]}"
+                continue
+
+            match = re.search(r"^\s*#\s*RUN_OPTS\s*(.*)", line)
+            if match is not None:
+                self.run_opts = f"{self.run_opts} {match.groups()[0]}"
+                continue
+
+            match = re.search(r"^\s*#\s*IMAGE_OPTS\s*(.*)", line)
+            if match is not None:
+                self.image_opts = f"{self.image_opts} {match.groups()[0]}"
+                continue
+
+            match = re.search(r"^\s*#\s*USE_SHELL\s*(.*)", line)
+            if match is not None:
+                if not self.allow_shell:
+                    raise Exception(
+                        "Dockerfile requires shell parsing, but shell parsing not allowed"
+                    )
+
+                self.shell = True
+                continue
+
+            match = re.search(r"^\s*#\s*ENGINE\s*(.*)", line)
+            if match is not None:
+                engine_opt = match.groups()[0].strip()
+                if engine_opt not in ["docker", "podman"]:
+                    raise Exception("Unsupported engine. Must be podman or docker")
+
+                self.engine = engine_opt
+
+            if self.mode is not None and self.mode != "":
+                match = re.search(r"^\s*#\s*" + self.mode + r"_BUILD_OPTS\s*(.*)", line)
+                if match is not None:
+                    self.build_opts = f"{self.build_opts} {match.groups()[0]}"
+                    continue
+
+                match = re.search(r"^\s*#\s*" + self.mode + r"_RUN_OPTS\s*(.*)", line)
+                if match is not None:
+                    self.run_opts = f"{self.run_opts} {match.groups()[0]}"
+                    continue
+
+                match = re.search(r"^\s*#\s*" + self.mode + r"_IMAGE_OPTS\s*(.*)", line)
+                if match is not None:
+                    self.image_opts = f"{self.image_opts} {match.groups()[0]}"
+                    continue
+
+        logger.debug("Spec: %s", self.spec)
+        logger.debug("Dockerfile: %s", self.dockerfile)
+        logger.debug("Build Options: %s", self.build_opts)
+        logger.debug("Run Options: %s", self.run_opts)
+        logger.debug("Image Options: %s", self.image_opts)
+        logger.debug("Engine: %s", self.engine)
+        logger.debug("Custom Options: %s", self.custom_opts)
+        logger.debug("Build mode: %s", self.mode)
+        logger.debug("Shell: %s", self.shell)
+        logger.debug("Allow shell: %s", self.allow_shell)
+
+    def build(self) -> int:
+        # Perform a build of the Dockerfile
+        build_cmd = f"{self.engine} build -f {self.expanded_dockerfile} -q {self.spec} {self.build_opts}"
+
+        call_args: list[str] | str
+
+        if self.shell:
+            call_args = build_cmd
+        else:
+            call_args = shlex.split(build_cmd)
+            call_args = [os.path.expandvars(x) for x in call_args]
+
+        logger.debug("Build call args: %s", call_args)
+
+        sys.stdout.flush()
+        proc = subprocess.run(
+            call_args,
+            shell=self.shell,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=self.env
+        )
+        if proc.returncode != 0:
+            logger.error(proc.stdout.decode("ascii"))
+            return proc.returncode
+
+        self.docker_image = proc.stdout.decode("ascii").splitlines()[-1]
+        logger.debug("Docker image SHA: %s", self.docker_image)
+
+        return 0
+
+    def run(self):
+        logger.debug("Running container image")
+
+        interactive_arg = ""
+        if sys.stdin.isatty():
+            logger.debug("Input is a TTY")
+            interactive_arg = " -i "
+        else:
+            logger.debug("Input is not a TTY")
+
+        run_cmd = f"{self.engine} run --rm {interactive_arg} -t {self.run_opts} {self.docker_image} {self.image_opts}"
+        if self.shell:
+            call_args = run_cmd
+            for opt in self.custom_opts:
+                call_args = '%s "%s"' % (call_args, opt.replace('"', '\\"'))
+        else:
+            call_args = shlex.split(run_cmd)
+            call_args = [os.path.expandvars(x) for x in call_args]
+            call_args = call_args + self.custom_opts
+
+        logger.debug("Run call args: %s", call_args)
+
+        sys.stdout.flush()
+        return subprocess.run(call_args, shell=self.shell, env=self.env).returncode
+
+def add_dockerfile_content(temp_file, dockerfile, limit=10):
+
+    # Validate incoming arguments
+    check_type(dockerfile, str, "Invalid dockerfile argument type")
+    check_type(limit, int, "Invalid limit argumet type")
+
+    check_val(limit >= 0, "Reached limit of include recursion")
+    check_val(os.path.isfile(dockerfile), f"Referenced dockerfile does not exist: {dockerfile}")
+
+    # Read all content from file
+    lines = []
+    with open(dockerfile, "r", encoding="utf-8") as file:
+        lines = file.read().splitlines()
+
+    dockerfile_dir = os.path.dirname(dockerfile)
+
+    # Iterate through content, looking for includes
+    for line in lines:
+
+        # Check for an include match
+        match = re.search(r"^\s*#\s*INCLUDE\s*(.*)", line)
+        if match is not None:
+            filename = match.groups()[0].strip()
+
+            # Determine the full path to the include
+            if not os.path.isabs(filename):
+                filename = os.path.realpath(os.path.join(dockerfile_dir, filename))
+            logger.debug("Including dockerfile: %s", filename)
+
+            # Include this dockerfile at this point
+            add_dockerfile_content(temp_file, filename, limit-1)
+
+            continue
+
+        # Add the line to the file
+        temp_file.write(line + "\n")
 
 def process_docker_spec(
     spec,
@@ -25,7 +222,6 @@ def process_docker_spec(
     mode=None,
     custom_opts=[],
 ) -> int:
-    logger = logging.getLogger(__name__)
 
     # Make sure we have a valid spec
     if spec is None or spec == "":
@@ -60,144 +256,53 @@ def process_docker_spec(
 
     # At this point, spec is the path to the Docker build directory and dockerfile
     # is the location of the actual Dockerfile
-    logger.debug(f"Directory: {spec}")
-    logger.debug(f"Dockerfile: {dockerfile}")
+    logger.debug("Directory: %s", spec)
+    logger.debug("Dockerfile: %s", dockerfile)
 
-    build_opts = ""
-    run_opts = ""
-    image_opts = ""
-    shell = False
-    engine = "docker"
+    # Check if the dockerfile exists
+    if not os.path.isfile(dockerfile):
+        if ignore_missing:
+            logger.warning("Dockerfile (%s) not found", dockerfile)
+            return 0
 
-    # Read the dockerfile for processing
-    lines = []
-    try:
-        with open(dockerfile, "r") as file:
-            lines = file.read().splitlines()
-    except FileNotFoundError as e:
-        if not ignore_missing:
-            logger.error("Dockerfile ({dockerfile}) not found: %s", e)
-            raise
+        logger.error("Dockerfile (%s) not found", dockerfile)
+        raise FileNotFoundError(dockerfile)
 
-        logger.warning("Dockerfile ({dockerfile}) not found %s", e)
+    # Create temporary file for docker file content
+    with tempfile.NamedTemporaryFile("w+t") as temp_file:
+
+        # Create a spec session to hold session info and do
+        # a build and run
+        options = SpecSession(
+            spec=spec,
+            dockerfile=dockerfile,
+            custom_opts=custom_opts,
+            allow_shell=allow_shell,
+            mode=mode,
+            expanded_dockerfile=temp_file.name
+        )
+
+        # Add dockerfile content to the temporary file
+        # add_dockerfile_content will call itself to add any
+        # referenced dockerfiles
+        add_dockerfile_content(temp_file, dockerfile)
+
+        # Parse options from dockerfile and update options
+        temp_file.seek(0)
+        lines = temp_file.read().splitlines()
+        logger.debug("Accumulated dockerfile: \n%s", "\n".join(lines))
+        options.parse_options(lines)
+
+        # Build the dockerfile
+        ret = options.build()
+        if ret != 0:
+            return ret
+
+        # Optionally run the dockerfile
+        if run:
+            return options.run()
+
         return 0
-
-    # Look for any of the Dockerfile options affecting the build or run
-    for line in lines:
-        match = re.search(r"^\s*#\s*BUILD_OPTS\s*(.*)", line)
-        if match is not None:
-            build_opts = f"{build_opts} {match.groups()[0]}"
-            continue
-
-        match = re.search(r"^\s*#\s*RUN_OPTS\s*(.*)", line)
-        if match is not None:
-            run_opts = f"{run_opts} {match.groups()[0]}"
-            continue
-
-        match = re.search(r"^\s*#\s*IMAGE_OPTS\s*(.*)", line)
-        if match is not None:
-            image_opts = f"{image_opts} {match.groups()[0]}"
-            continue
-
-        match = re.search(r"^\s*#\s*USE_SHELL\s*(.*)", line)
-        if match is not None:
-            if not allow_shell:
-                raise Exception(
-                    "Dockerfile requires shell parsing, but shell parsing not allowed"
-                )
-
-            shell = True
-            continue
-
-        match = re.search(r"^\s*#\s*ENGINE\s*(.*)", line)
-        if match is not None:
-            engine_opt = match.groups()[0].strip()
-            if engine_opt not in ["docker", "podman"]:
-                raise Exception("Unsupported engine. Must be podman or docker")
-
-            engine = engine_opt
-
-        if mode is not None and mode != "":
-            match = re.search(r"^\s*#\s*" + mode + r"_BUILD_OPTS\s*(.*)", line)
-            if match is not None:
-                build_opts = f"{build_opts} {match.groups()[0]}"
-                continue
-
-            match = re.search(r"^\s*#\s*" + mode + r"_RUN_OPTS\s*(.*)", line)
-            if match is not None:
-                run_opts = f"{run_opts} {match.groups()[0]}"
-                continue
-
-            match = re.search(r"^\s*#\s*" + mode + r"_IMAGE_OPTS\s*(.*)", line)
-            if match is not None:
-                image_opts = f"{image_opts} {match.groups()[0]}"
-                continue
-
-    logger.debug(f"Build Options: {build_opts}")
-    logger.debug(f"Run Options: {run_opts}")
-    logger.debug(f"Image Options: {image_opts}")
-    logger.debug(f"Engine: {engine}")
-    logger.debug(f"Custom Options: {custom_opts}")
-
-    # Configure environment variables for use by docker commands
-    os.environ["DFBAR_DOCKER_DIR"] = spec
-    os.environ["DFBAR_DOCKERFILE"] = dockerfile
-    os.environ["DFBAR_USER_ID"] = str(os.getuid())
-    os.environ["DFBAR_GROUP_ID"] = str(os.getgid())
-    os.environ["DFBAR_CWD"] = os.getcwd()
-
-    # Perform a build of the Dockerfile
-    build_cmd = f"{engine} build -f {dockerfile} -q {spec} {build_opts}"
-
-    call_args: list[str] | str
-
-    if shell:
-        call_args = build_cmd
-    else:
-        call_args = shlex.split(build_cmd)
-        call_args = [os.path.expandvars(x) for x in call_args]
-
-    logger.debug(f"Build call args: {call_args}")
-
-    sys.stdout.flush()
-    proc = subprocess.run(
-        call_args, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-    )
-    if proc.returncode != 0:
-        logger.error(proc.stdout.decode("ascii"))
-        return proc.returncode
-
-    docker_image = proc.stdout.decode("ascii").splitlines()[-1]
-    logger.debug(f"Docker image SHA: {docker_image}")
-
-    # Run the container image
-    if run:
-        logger.debug("Running container image")
-
-        interactive_arg = ""
-        if sys.stdin.isatty():
-            logger.debug("Input is a TTY")
-            interactive_arg = " -i "
-        else:
-            logger.debug("Input is not a TTY")
-
-        run_cmd = f"{engine} run --rm {interactive_arg} -t {run_opts} {docker_image} {image_opts}"
-        if shell:
-            call_args = run_cmd
-            for opt in custom_opts:
-                call_args = '%s "%s"' % (call_args, opt.replace('"', '\\"'))
-        else:
-            call_args = shlex.split(run_cmd)
-            call_args = [os.path.expandvars(x) for x in call_args]
-            call_args = call_args + custom_opts
-
-        logger.debug(f"Run call args: {call_args}")
-
-        sys.stdout.flush()
-        return subprocess.run(call_args, shell=shell).returncode
-
-    return 0
-
 
 def process_args():
     # Process the command line arguments
