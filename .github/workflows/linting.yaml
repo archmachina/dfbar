@@ -1,15 +1,18 @@
 ---
 
-name: push_branch_main
+name: linting
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  push_branch_main:
-    name: "push_branch_main"
+  linting_main:
+    name: "linting"
     runs-on: ubuntu-latest
 
     steps:
@@ -19,15 +22,12 @@ jobs:
           submodules: true
 
       - name: python setup
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.x'
           cache: 'pip'
 
-      - name: push_branch_main
+      - name: linting
         shell: bash
         run: |
-          ./entrypoint push_branch_main
-        env:
-          SECRET_REGISTRY_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
-
+          ./entrypoint lint
